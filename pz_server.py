@@ -9,11 +9,8 @@ RENDER_MODE = "ansi"
 
 
 def send_json(conn, obj):
-    try:
-        msg = json.dumps(obj, ensure_ascii=False) + "\n"
-        conn.sendall(msg.encode("utf-8"))
-    except:
-        pass
+    msg = json.dumps(obj, ensure_ascii=False) + "\n"
+    conn.sendall(msg.encode("utf-8"))
 
 
 def recv_available_json(player):
@@ -94,21 +91,19 @@ def print_board(obs):
     print(render_ascii_from_obs(obs))
 
 
-def send_state(conn, obs, message, legal_moves=None):
-    payload = {
+def send_state(conn, obs, message, legal_moves):
+    send_json(conn, {
         "type": "state",
         "message": message,
         "board": board_chars_from_obs(obs),
-    }
-    if legal_moves is not None:
-        payload["legal_moves"] = legal_moves
-    send_json(conn, payload)
+        "legal_moves": legal_moves
+    })
 
 
-def send_turn_prompt(player, obs, legal_moves):
-    send_json(player["conn"], {
+def send_turn_prompt(conn, obs, legal_moves):
+    send_json(conn, {
         "type": "your_turn",
-        "message": "Your turn. Enter move as JSON: {\"type\":\"move\",\"row\":0,\"col\":0}",
+        "message": "Your turn",
         "board": board_chars_from_obs(obs),
         "legal_moves": legal_moves
     })
@@ -122,7 +117,7 @@ def parse_move_json(obj):
         return None, "JSON field 'type' must be 'move'"
 
     if "row" not in obj or "col" not in obj:
-        return None, "JSON move must contain integer fields 'row' and 'col'"
+        return None, "JSON move must contain fields 'row' and 'col'"
 
     row = obj.get("row")
     col = obj.get("col")
@@ -146,7 +141,6 @@ def main():
     server.listen(2)
 
     print(f"Server listening on {HOST}:{PORT}")
-    print("Waiting for 2 players...")
 
     print("Waiting for Player 1...")
     conn1, addr1 = server.accept()
@@ -154,8 +148,7 @@ def main():
     send_json(conn1, {
         "type": "welcome",
         "you": "Player 1",
-        "symbol": "X",
-        "message": "Welcome! You are Player 1 (X)."
+        "symbol": "X"
     })
 
     print("Waiting for Player 2...")
@@ -164,8 +157,7 @@ def main():
     send_json(conn2, {
         "type": "welcome",
         "you": "Player 2",
-        "symbol": "O",
-        "message": "Welcome! You are Player 2 (O)."
+        "symbol": "O"
     })
 
     players = {
@@ -189,22 +181,21 @@ def main():
         obs, _, _, _, _ = env.last()
         print_board(obs)
 
-        first_agent = env.agent_selection
+        current_agent = env.agent_selection
+        current_legal = legal_moves_from_mask(obs["action_mask"])
+
         for agent in env.possible_agents:
-            legal_moves = legal_moves_from_mask(obs["action_mask"]) if agent == first_agent else []
-            send_state(
-                players[agent]["conn"],
-                obs,
-                "Game start",
-                legal_moves
-            )
+            if agent == current_agent:
+                send_state(players[agent]["conn"], obs, "Game start", current_legal)
+            else:
+                send_state(players[agent]["conn"], obs, "Game start", [])
 
         while env.agents:
             agent = env.agent_selection
             obs, reward, termination, truncation, info = env.last()
 
             current = players[agent]
-            other_agent = [a for a in env.possible_agents if a != agent][0]
+            other_agent = "player_1" if agent == "player_2" else "player_2"
             other = players[other_agent]
 
             if termination or truncation:
@@ -216,7 +207,7 @@ def main():
             mask = obs["action_mask"]
             legal_moves = legal_moves_from_mask(mask)
 
-            send_turn_prompt(current, obs, legal_moves)
+            send_turn_prompt(current["conn"], obs, legal_moves)
             send_json(other["conn"], {
                 "type": "info",
                 "message": f"Waiting for {current['name']} ({current['symbol']}) to move..."
@@ -234,16 +225,19 @@ def main():
                     try:
                         messages = recv_available_json(owner)
                     except Exception:
-                        if owner_agent == agent:
-                            send_json(other["conn"], {
-                                "type": "info",
-                                "message": "Other player disconnected. Game over."
-                            })
-                        else:
-                            send_json(current["conn"], {
-                                "type": "info",
-                                "message": "Other player disconnected. Game over."
-                            })
+                        try:
+                            if owner_agent == agent:
+                                send_json(other["conn"], {
+                                    "type": "info",
+                                    "message": "Other player disconnected. Game over."
+                                })
+                            else:
+                                send_json(current["conn"], {
+                                    "type": "info",
+                                    "message": "Other player disconnected. Game over."
+                                })
+                        except Exception:
+                            pass
                         print(f"{owner['name']} disconnected.")
                         return
 
@@ -258,7 +252,7 @@ def main():
                         if isinstance(msg, dict) and msg.get("_invalid_json"):
                             send_json(owner["conn"], {
                                 "type": "error",
-                                "message": "Invalid JSON. Please send one JSON object per line like {\"type\":\"move\",\"row\":0,\"col\":0}"
+                                "message": "Invalid JSON. Please send one JSON object per line."
                             })
                             continue
 
@@ -293,25 +287,21 @@ def main():
                             "message": f"{owner['name']} ({owner['symbol']}) played ({row}, {col})"
                         })
 
+                        if any(env.terminations.values()) or any(env.truncations.values()):
+                            final_rewards = dict(env.rewards)
+
                         if env.agents:
                             next_obs, _, _, _, _ = env.last()
                             print_board(next_obs)
 
                             next_agent = env.agent_selection
-                            next_mask = next_obs["action_mask"]
-                            next_legal_moves = legal_moves_from_mask(next_mask)
+                            next_legal = legal_moves_from_mask(next_obs["action_mask"])
 
                             for a in env.possible_agents:
-                                legal = next_legal_moves if a == next_agent else []
-                                send_state(
-                                    players[a]["conn"],
-                                    next_obs,
-                                    "Board updated",
-                                    legal
-                                )
-
-                        if any(env.terminations.values()) or any(env.truncations.values()):
-                            final_rewards = dict(env.rewards)
+                                if a == next_agent:
+                                    send_state(players[a]["conn"], next_obs, "Board updated", next_legal)
+                                else:
+                                    send_state(players[a]["conn"], next_obs, "Board updated", [])
 
                         move_done = True
                         break
@@ -322,13 +312,17 @@ def main():
         if final_rewards is None:
             final_rewards = dict(env.rewards)
 
+        try:
+            final_obs, _, _, _, _ = env.last()
+        except Exception:
+            final_obs = obs
+
         print("Game over.", final_rewards)
 
-        final_obs, _, _, _, _ = env.last()
-        for a in env.possible_agents:
-            send_json(players[a]["conn"], {
+        for agent in env.possible_agents:
+            send_json(players[agent]["conn"], {
                 "type": "game_over",
-                "message": "Game over",
+                "message": "Game over.",
                 "board": board_chars_from_obs(final_obs),
                 "rewards": final_rewards
             })
@@ -336,19 +330,19 @@ def main():
     finally:
         try:
             conn1.close()
-        except:
+        except Exception:
             pass
         try:
             conn2.close()
-        except:
+        except Exception:
             pass
         try:
             server.close()
-        except:
+        except Exception:
             pass
         try:
             env.close()
-        except:
+        except Exception:
             pass
 
 
