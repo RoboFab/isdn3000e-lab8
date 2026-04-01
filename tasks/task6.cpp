@@ -54,18 +54,7 @@ void task6_client() {
             break;
         }
 
-        std::istream is(&buf);
-        std::string line;
-        std::getline(is, line);
-        if (line.empty()) continue;
-
-        json msg;
-        try {
-            msg = json::parse(line);
-        } catch (...) {
-            std::cout << "Received invalid JSON: " << line << "\n";
-            continue;
-        }
+        // TODO 1: Convert strings to JSON format
 
         std::string type = msg.value("type", "");
 
@@ -85,17 +74,11 @@ void task6_client() {
 
             int row, col;
             std::cout << "Enter move (row col): ";
-            std::cin >> row >> col;
-            std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
 
-            json out = {
-                {"type", "move"},
-                {"row", row},
-                {"col", col}
-            };
 
-            std::string s = out.dump() + "\n";
-            boost::asio::write(socket, boost::asio::buffer(s), ec);
+            // TODO 2: Finish "your turn" move logics
+
+
             if (ec) {
                 std::cout << "Write failed: " << ec.message() << "\n";
                 break;

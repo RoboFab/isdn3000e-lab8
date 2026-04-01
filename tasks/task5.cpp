@@ -19,15 +19,8 @@ void task5_server() {
 
     while (true) {
         int size = 0;
-        boost::asio::read(socket, boost::asio::buffer(&size, sizeof(size)));
 
-        std::vector<uchar> buffer(size);
-        boost::asio::read(socket, boost::asio::buffer(buffer.data(), size));
-
-        cv::Mat img = cv::imdecode(buffer, cv::IMREAD_COLOR);
-        if (img.empty()) continue;
-
-        cv::imshow("Server View", img);
+        // TODO 1: receive img data
 
         if (cv::waitKey(1) == 27) break;
     }
@@ -64,13 +57,7 @@ void task5_client() {
             cv::Mat::AUTO_STEP
         );
 
-        std::vector<uchar> buffer;
-        cv::imencode(".jpg", img, buffer);
-
-        int size = (int)buffer.size();
-
-        boost::asio::write(socket, boost::asio::buffer(&size, sizeof(size)));
-        boost::asio::write(socket, boost::asio::buffer(buffer.data(), size));
+        // TODO 1: send img data
 
         cv::imshow("Client View", img);
 
