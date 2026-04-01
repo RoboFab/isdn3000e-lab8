@@ -47,13 +47,18 @@ void task6_client() {
 
     boost::asio::streambuf buf;
 
+    boost::asio::streambuf buf;
     while (true) {
         boost::asio::read_until(socket, buf, '\n', ec);
-        if (ec) {
-            std::cout << "Connection closed: " << ec.message() << "\n";
-            break;
-        }
-
+        if (ec) { std::cout << "Connection closed: " << ec.message() << "\n"; break;}
+        std::istream is(&buf);
+        std::string line;
+        std::getline(is, line);
+        if (line.empty()) continue;
+        json msg;
+        try {
+            msg = json::parse(line);
+        } catch (...) { std::cout << "Received invalid JSON: " << line << "\n"; continue; }
         // TODO 1: Convert strings to JSON format
 
         std::string type = msg.value("type", "");
@@ -71,19 +76,16 @@ void task6_client() {
             std::cout << msg.value("message", "Your turn") << "\n";
             print_board(msg["board"]);
             print_legal_moves(msg["legal_moves"]);
-
             int row, col;
             std::cout << "Enter move (row col): ";
-
-
-            // TODO 2: Finish "your turn" move logics
-
-
-            if (ec) {
-                std::cout << "Write failed: " << ec.message() << "\n";
-                break;
-            }
+            std::cin >> row >> col;
+            std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+            json out = { {"type", "move"}, {"row", row}, {"col", col} };
+            std::string s = out.dump() + "\n";
+            boost::asio::write(socket, boost::asio::buffer(s), ec);
+            if (ec) {std::cout << "Write failed: " << ec.message() << "\n"; Break; }
         }
+
         else if (type == "error") {
             std::cout << "Error: " << msg.value("message", "") << "\n";
         }
