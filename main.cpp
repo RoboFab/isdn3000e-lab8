@@ -7,6 +7,6 @@
 #include "tasks/task6.h"
 
 int main() {
-    task4_server();
+    task6_client();
     return 0;
 }

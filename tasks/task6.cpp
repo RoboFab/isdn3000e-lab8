@@ -32,8 +32,8 @@ void task6_client() {
     tcp::socket socket(io);
 
     tcp::endpoint endpoint(
-        boost::asio::ip::make_address("172.29.128.1"),
-        8888
+        boost::asio::ip::make_address("127.0.0.1"),
+        9999
     );
 
     boost::system::error_code ec;
@@ -44,8 +44,6 @@ void task6_client() {
     }
 
     std::cout << "Connected to TicTacToe server.\n";
-
-    boost::asio::streambuf buf;
 
     boost::asio::streambuf buf;
     while (true) {
@@ -83,7 +81,7 @@ void task6_client() {
             json out = { {"type", "move"}, {"row", row}, {"col", col} };
             std::string s = out.dump() + "\n";
             boost::asio::write(socket, boost::asio::buffer(s), ec);
-            if (ec) {std::cout << "Write failed: " << ec.message() << "\n"; Break; }
+            if (ec) {std::cout << "Write failed: " << ec.message() << "\n"; break; }
         }
 
         else if (type == "error") {

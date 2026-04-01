@@ -31,8 +31,8 @@ add_executable(isdn3000e_lab8 main.cpp
         tasks/task4.h
         tasks/task5.cpp
         tasks/task5.h
-#        tasks/task6.cpp
-#        tasks/task6.h
+        tasks/task6.cpp
+        tasks/task6.h
 )
 
 
