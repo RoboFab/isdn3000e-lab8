@@ -19,7 +19,12 @@ void task5_server() {
 
     while (true) {
         int size = 0;
-
+        boost::asio::read(socket, boost::asio::buffer(&size, sizeof(size)));
+        std::vector<uchar> buffer(size);
+        boost::asio::read(socket, boost::asio::buffer(buffer.data(), size));
+        cv::Mat img = cv::imdecode(buffer, cv::IMREAD_COLOR);
+        if (img.empty()) continue;
+        cv::imshow("Server View", img);
         // TODO 1: receive img data
 
         if (cv::waitKey(1) == 27) break;
@@ -58,9 +63,20 @@ void task5_client() {
         );
 
         // TODO 1: send img data
-
+        std::cout << "Connected to server!\n";
+        rs2::pipeline pipe;
+        rs2::config cfg;
+        cfg.enable_stream(RS2_STREAM_COLOR, 640, 480, RS2_FORMAT_BGR8, 30);
+        pipe.start(cfg);
         cv::imshow("Client View", img);
 
+        std::vector<uchar> buffer;
+        cv::imencode(".jpg", img, buffer);
+        int size = (int)buffer.size();
+        boost::asio::write(socket, boost::asio::buffer(&size, sizeof(size)));
+        boost::asio::write(socket, boost::asio::buffer(buffer.data(), size));
+        cv::imshow("Client View", img);
         if (cv::waitKey(1) == 27) break;
     }
+
 }
