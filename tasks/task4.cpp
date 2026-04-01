@@ -11,17 +11,20 @@ using boost::asio::ip::tcp;
 
 void task4_server() {
     boost::asio::io_context io;
-
-    // TODO 1. listen on port 8888
-
+    tcp::acceptor acceptor(io, tcp::endpoint(tcp::v4(), 8888));
     std::cout << "Listening on 8888...\n";
-
-    // TODO 2. wait for connection
-
+    // 2. wait for connection
+    tcp::socket socket(io);
+    acceptor.accept(socket);
     std::cout << "Client connected!\n";
-
-    // TODO 3. receive data
+    // 3. receive data
     std::array<char, 1024> buf;
+    while (true) {
+        boost::system::error_code ec;
+        size_t len = socket.read_some(boost::asio::buffer(buf), ec);
+        if (ec) break;
+        std::cout << "Received: " << std::string(buf.data(), len);
+    }
 
 
     std::cout << "Client disconnected.\n";
@@ -30,16 +33,27 @@ void task4_server() {
 
 
 void task4_client() {
+    // 1. create socket
     boost::asio::io_context io;
-
-    // TODO 1. create socket
-
-    // TODO 2. connect to server
-
-
+    tcp::socket socket(io);
+    // 2. connect to server
+    tcp::endpoint endpoint(
+       boost::asio::ip::make_address("10.89.121.160"),
+       8888
+    );
+    socket.connect(endpoint);
     std::cout << "Connected!\n";
 
     // TODO 3. send messages
+    while (true) {
+        std::string msg;
+        std::getline(std::cin, msg);
+        msg += "\n";
+        boost::asio::write(
+            socket,
+            boost::asio::buffer(msg)
+        );
+    }
 
 }
 
@@ -50,6 +64,7 @@ std::vector<std::shared_ptr<tcp::socket>> clients;
 std::mutex clients_mutex;
 
 void task4_server_chatroom() {
+
     boost::asio::io_context io;
     tcp::acceptor acceptor(io, tcp::endpoint(tcp::v4(), 8888));
 

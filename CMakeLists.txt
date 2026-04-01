@@ -29,13 +29,13 @@ add_executable(isdn3000e_lab8 main.cpp
         tasks/task3.h
         tasks/task4.cpp
         tasks/task4.h
-#        tasks/task5.cpp
-#        tasks/task5.h
+        tasks/task5.cpp
+        tasks/task5.h
 #        tasks/task6.cpp
 #        tasks/task6.h
 )
 
-find_package(OpenCV REQUIRED PATHS /usr/local/lib/cmake/opencv4 NO_DEFAULT_PATH)
+find_package(OpenCV REQUIRED PATHS)
 find_package(realsense2 REQUIRED)
 find_package(Boost REQUIRED CONFIG)
 message(STATUS "OpenCV version: ${OpenCV_VERSION}")
