@@ -1,38 +1,48 @@
 import socket
 import select
+import json
 from pettingzoo.classic import tictactoe_v3
 
 HOST = "0.0.0.0"
 PORT = 9999
-RENDER_MODE = "ansi" 
+RENDER_MODE = "ansi"
 
 
-def send_line(conn, text):
+def send_json(conn, obj):
     try:
-        conn.sendall((text + "\n").encode("utf-8"))
+        msg = json.dumps(obj, ensure_ascii=False) + "\n"
+        conn.sendall(msg.encode("utf-8"))
     except:
         pass
 
 
-def recv_available_lines(player):
+def recv_available_json(player):
     conn = player["conn"]
     data = conn.recv(4096)
     if not data:
         raise ConnectionError("client disconnected")
-    player["buffer"] += data
 
-    lines = []
+    player["buffer"] += data
+    messages = []
+
     while b"\n" in player["buffer"]:
         line, _, player["buffer"] = player["buffer"].partition(b"\n")
-        lines.append(line.decode("utf-8").strip())
-    return lines
+        text = line.decode("utf-8").strip()
+        if not text:
+            continue
+        try:
+            obj = json.loads(text)
+            messages.append(obj)
+        except json.JSONDecodeError:
+            messages.append({
+                "_invalid_json": True,
+                "_raw": text
+            })
+
+    return messages
 
 
 def action_to_row_col(action):
-    # PettingZoo tictactoe action mapping:
-    # 0 | 3 | 6
-    # 1 | 4 | 7
-    # 2 | 5 | 8
     row = action % 3
     col = action // 3
     return row, col
@@ -47,15 +57,13 @@ def legal_moves_from_mask(mask):
     for action, v in enumerate(mask):
         if int(v) == 1:
             row, col = action_to_row_col(action)
-            moves.append((row, col))
+            moves.append({"row": row, "col": col})
     return moves
 
 
-def render_ascii_from_obs(obs):
+def board_chars_from_obs(obs):
     board = obs["observation"]
-    lines = []
-    lines.append("    0   1   2")
-    lines.append("  +---+---+---+")
+    grid = []
     for r in range(3):
         row_chars = []
         for c in range(3):
@@ -67,7 +75,17 @@ def render_ascii_from_obs(obs):
             else:
                 ch = " "
             row_chars.append(ch)
-        lines.append(f"{r} | {row_chars[0]} | {row_chars[1]} | {row_chars[2]} |")
+        grid.append(row_chars)
+    return grid
+
+
+def render_ascii_from_obs(obs):
+    grid = board_chars_from_obs(obs)
+    lines = []
+    lines.append("    0   1   2")
+    lines.append("  +---+---+---+")
+    for r in range(3):
+        lines.append(f"{r} | {grid[r][0]} | {grid[r][1]} | {grid[r][2]} |")
         lines.append("  +---+---+---+")
     return "\n".join(lines)
 
@@ -82,26 +100,55 @@ def print_board(env, obs):
         print(render_ascii_from_obs(obs))
 
 
-def prompt_turn(current, legal_moves):
-    legal_text = " ".join([f"({r},{c})" for r, c in legal_moves])
-    send_line(current["conn"], f"YOUR_TURN {current['name']} {current['symbol']}")
-    send_line(current["conn"], f"LEGAL_MOVES {legal_text}")
-    send_line(current["conn"], "INPUT Please enter: row col")
+def send_board_state(conn, obs, your_turn, legal_moves=None, message=""):
+    payload = {
+        "type": "board_state",
+        "board": board_chars_from_obs(obs),
+        "ascii_board": render_ascii_from_obs(obs),
+        "your_turn": your_turn,
+        "message": message,
+    }
+    if legal_moves is not None:
+        payload["legal_moves"] = legal_moves
+    send_json(conn, payload)
 
 
-def parse_move_line(line):
-    parts = line.split()
-    if len(parts) != 2:
-        return None, "ERROR Bad format. Please enter exactly: row col"
+def send_turn_prompt(current, obs, legal_moves):
+    send_json(current["conn"], {
+        "type": "your_turn",
+        "name": current["name"],
+        "symbol": current["symbol"],
+        "legal_moves": legal_moves,
+        "board": board_chars_from_obs(obs),
+        "ascii_board": render_ascii_from_obs(obs),
+        "input_format": {
+            "type": "move",
+            "row": 0,
+            "col": 0
+        },
+        "message": "Please send a JSON line like: {\"type\":\"move\",\"row\":0,\"col\":0}"
+    })
 
-    try:
-        row = int(parts[0])
-        col = int(parts[1])
-    except ValueError:
-        return None, "ERROR row and col must be integers"
+
+def parse_move_json(obj):
+    if not isinstance(obj, dict):
+        return None, "Message must be a JSON object"
+
+    msg_type = obj.get("type")
+    if msg_type != "move":
+        return None, "JSON field 'type' must be 'move'"
+
+    if "row" not in obj or "col" not in obj:
+        return None, "JSON move must contain integer fields 'row' and 'col'"
+
+    row = obj.get("row")
+    col = obj.get("col")
+
+    if not isinstance(row, int) or not isinstance(col, int):
+        return None, "Fields 'row' and 'col' must both be integers"
 
     if not (0 <= row <= 2 and 0 <= col <= 2):
-        return None, "ERROR row and col must both be between 0 and 2"
+        return None, "Fields 'row' and 'col' must both be between 0 and 2"
 
     return (row, col), None
 
@@ -121,12 +168,24 @@ def main():
     print("Waiting for Player 1...")
     conn1, addr1 = server.accept()
     print("Player 1 connected from", addr1)
-    send_line(conn1, "WELCOME You are Player 1 (X)")
+    send_json(conn1, {
+        "type": "welcome",
+        "player": "player_1",
+        "name": "Player 1",
+        "symbol": "X",
+        "message": "Welcome! You are Player 1 (X)."
+    })
 
     print("Waiting for Player 2...")
     conn2, addr2 = server.accept()
     print("Player 2 connected from", addr2)
-    send_line(conn2, "WELCOME You are Player 2 (O)")
+    send_json(conn2, {
+        "type": "welcome",
+        "player": "player_2",
+        "name": "Player 2",
+        "symbol": "O",
+        "message": "Welcome! You are Player 2 (O)."
+    })
 
     players = {
         "player_1": {
@@ -149,6 +208,9 @@ def main():
         obs, _, _, _, _ = env.last()
         print_board(env, obs)
 
+        send_board_state(conn1, obs, your_turn=True, legal_moves=legal_moves_from_mask(obs["action_mask"]), message="Game start")
+        send_board_state(conn2, obs, your_turn=False, legal_moves=None, message="Game start")
+
         while env.agents:
             agent = env.agent_selection
             obs, reward, termination, truncation, info = env.last()
@@ -166,8 +228,14 @@ def main():
             mask = obs["action_mask"]
             legal_moves = legal_moves_from_mask(mask)
 
-            prompt_turn(current, legal_moves)
-            send_line(other["conn"], f"INFO Waiting for {current['name']} ({current['symbol']}) to move...")
+            send_turn_prompt(current, obs, legal_moves)
+            send_json(other["conn"], {
+                "type": "info",
+                "message": f"Waiting for {current['name']} ({current['symbol']}) to move...",
+                "board": board_chars_from_obs(obs),
+                "ascii_board": render_ascii_from_obs(obs),
+                "your_turn": False
+            })
 
             move_done = False
 
@@ -179,49 +247,97 @@ def main():
                     owner = players[owner_agent]
 
                     try:
-                        lines = recv_available_lines(owner)
+                        messages = recv_available_json(owner)
                     except Exception:
                         if owner_agent == agent:
-                            send_line(other["conn"], "INFO Other player disconnected. Game over.")
+                            send_json(other["conn"], {
+                                "type": "disconnect",
+                                "message": "Other player disconnected. Game over."
+                            })
                             print(f"{owner['name']} disconnected.")
                         else:
-                            send_line(current["conn"], "INFO Other player disconnected. Game over.")
+                            send_json(current["conn"], {
+                                "type": "disconnect",
+                                "message": "Other player disconnected. Game over."
+                            })
                             print(f"{owner['name']} disconnected.")
                         return
 
-                    for line in lines:
+                    for msg in messages:
                         if owner_agent != agent:
-                            send_line(owner["conn"], "NOT_YOUR_TURN It is not your turn. Please wait.")
+                            send_json(owner["conn"], {
+                                "type": "error",
+                                "code": "NOT_YOUR_TURN",
+                                "message": "It is not your turn. Please wait."
+                            })
                             continue
 
-                        if not line:
-                            send_line(owner["conn"], "ERROR Empty input. Please enter: row col")
+                        if isinstance(msg, dict) and msg.get("_invalid_json"):
+                            send_json(owner["conn"], {
+                                "type": "error",
+                                "code": "INVALID_JSON",
+                                "message": "Invalid JSON. Please send one JSON object per line.",
+                                "example": {"type": "move", "row": 0, "col": 0},
+                                "raw_received": msg.get("_raw", "")
+                            })
                             continue
 
-                        parsed, err = parse_move_line(line)
+                        parsed, err = parse_move_json(msg)
                         if err is not None:
-                            send_line(owner["conn"], err)
-                            send_line(owner["conn"], "INPUT Please enter again: row col")
+                            send_json(owner["conn"], {
+                                "type": "error",
+                                "code": "BAD_MOVE_FORMAT",
+                                "message": err,
+                                "example": {"type": "move", "row": 0, "col": 0}
+                            })
                             continue
 
                         row, col = parsed
                         action = row_col_to_action(row, col)
 
                         if int(mask[action]) != 1:
-                            send_line(owner["conn"], "ERROR Illegal move. That square is not available.")
-                            send_line(owner["conn"], "INPUT Please enter again: row col")
+                            send_json(owner["conn"], {
+                                "type": "error",
+                                "code": "ILLEGAL_MOVE",
+                                "message": "That square is not available.",
+                                "move": {"row": row, "col": col},
+                                "legal_moves": legal_moves
+                            })
                             continue
 
                         print(f"{owner['name']} ({owner['symbol']}) played ({row}, {col})")
                         env.step(action)
 
-                        next_obs = None
+                        send_json(owner["conn"], {
+                            "type": "move_ok",
+                            "message": f"You played ({row}, {col})",
+                            "move": {"row": row, "col": col}
+                        })
+
+                        send_json(other["conn"], {
+                            "type": "opponent_moved",
+                            "message": f"{owner['name']} ({owner['symbol']}) played ({row}, {col})",
+                            "move": {"row": row, "col": col}
+                        })
+
                         if env.agents:
                             next_obs, _, _, _, _ = env.last()
                             print_board(env, next_obs)
 
-                        send_line(owner["conn"], f"OK You played ({row}, {col})")
-                        send_line(other["conn"], f"INFO {owner['name']} ({owner['symbol']}) played ({row}, {col})")
+                            next_agent = env.agent_selection
+                            next_mask = next_obs["action_mask"]
+                            next_legal_moves = legal_moves_from_mask(next_mask)
+
+                            for a in env.possible_agents:
+                                is_turn = (a == next_agent)
+                                moves = next_legal_moves if is_turn else None
+                                send_board_state(
+                                    players[a]["conn"],
+                                    next_obs,
+                                    your_turn=is_turn,
+                                    legal_moves=moves,
+                                    message="Board updated"
+                                )
 
                         if any(env.terminations.values()) or any(env.truncations.values()):
                             final_rewards = dict(env.rewards)
@@ -236,8 +352,21 @@ def main():
             final_rewards = dict(env.rewards)
 
         print("Game over.", final_rewards)
+
+        final_obs = None
+        if env.agents:
+            final_obs, _, _, _, _ = env.last()
+
         for a in env.possible_agents:
-            send_line(players[a]["conn"], f"GAME_OVER rewards={final_rewards}")
+            payload = {
+                "type": "game_over",
+                "rewards": final_rewards,
+                "message": "Game over"
+            }
+            if final_obs is not None:
+                payload["board"] = board_chars_from_obs(final_obs)
+                payload["ascii_board"] = render_ascii_from_obs(final_obs)
+            send_json(players[a]["conn"], payload)
 
     finally:
         try:
