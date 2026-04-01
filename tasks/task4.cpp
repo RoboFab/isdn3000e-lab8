@@ -12,26 +12,17 @@ using boost::asio::ip::tcp;
 void task4_server() {
     boost::asio::io_context io;
 
-    // 1. listen on port 8888
-    tcp::acceptor acceptor(io, tcp::endpoint(tcp::v4(), 8888));
+    // TODO 1. listen on port 8888
+
     std::cout << "Listening on 8888...\n";
 
-    // 2. wait for connection
-    tcp::socket socket(io);
-    acceptor.accept(socket);
+    // TODO 2. wait for connection
+
     std::cout << "Client connected!\n";
 
-    // 3. receive data
+    // TODO 3. receive data
     std::array<char, 1024> buf;
 
-    while (true) {
-        boost::system::error_code ec;
-        size_t len = socket.read_some(boost::asio::buffer(buf), ec);
-
-        if (ec) break;
-
-        std::cout << "Received: " << std::string(buf.data(), len);
-    }
 
     std::cout << "Client disconnected.\n";
 }
@@ -41,30 +32,15 @@ void task4_server() {
 void task4_client() {
     boost::asio::io_context io;
 
-    // 1. create socket
-    tcp::socket socket(io);
+    // TODO 1. create socket
 
-    // 2. connect to server
-    tcp::endpoint endpoint(
-        boost::asio::ip::make_address("127.0.0.1"),
-        8888
-    );
+    // TODO 2. connect to server
 
-    socket.connect(endpoint);
+
     std::cout << "Connected!\n";
 
-    // 3. send messages
-    while (true) {
-        std::string msg;
-        std::getline(std::cin, msg);
+    // TODO 3. send messages
 
-        msg += "\n";
-
-        boost::asio::write(
-            socket,
-            boost::asio::buffer(msg)
-        );
-    }
 }
 
 
